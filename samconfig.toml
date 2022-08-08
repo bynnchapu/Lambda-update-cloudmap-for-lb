@@ -1,0 +1,14 @@
+version = 0.1
+[default]
+[default.package]
+[default.package.parameters]
+s3_bucket = "rain-artifacts-499862365437-ap-northeast-1"
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "Lambda-Update-cloudmap-for-lb"
+s3_bucket = "rain-artifacts-499862365437-ap-northeast-1"
+region = "ap-northeast-1"
+capabilities = "CAPABILITY_IAM"
+s3_prefix = "Lambda-Update-cloudmap-for-lb"
+confirm_changeset = true
+image_repositories = []

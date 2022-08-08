@@ -1,0 +1,64 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Resources:
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: UpdateCloudMapLB.lambda_handler
+      Runtime: python3.8
+      MemorySize: 128
+      Timeout: 20
+      Role: !GetAtt Role.Arn
+      CodeUri: src/
+      Events:
+        EventZabbix:
+          Type: Schedule
+          Properties:
+            Schedule: rate(30 minutes)
+            Input: >-
+              {
+                "LBName": "app/tencholab-lb/b6de00b289f4215b",
+                "ServiceId": "srv-mb2sfmpnz6kej3qx"
+              }
+        EventOriginBlog:
+          Type: Schedule
+          Properties:
+            Schedule: rate(30 minutes)
+            Input: >-
+              {
+                "LBName": "app/tencholab-lb/b6de00b289f4215b",
+                "ServiceId": "srv-zpkpoieauk5vmxi3"
+              }
+
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSCloudMapRegisterInstanceAccess
+        - !Ref PolicyDescribeENI
+  PolicyDescribeENI:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeNetworkInterfaces
+            Resource: "*"
+  
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${Function}
+      RetentionInDays: 7
