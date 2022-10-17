@@ -91,7 +91,7 @@ def remove_cloudmap_for_elb(service_instances, service_id):
         try:
             client.deregister_instance(
                 ServiceId=service_id,
-                InstanceId=service_id['Id']
+                InstanceId=service_instances['Id']
             )
         except:
             return False
@@ -106,18 +106,54 @@ def lambda_handler(event, context):
         event["ServiceId"]
     )
 
-    if not update_info['update_needed_netowrk_interfaces'] and :
+    if not update_info['update_needed_netowrk_interfaces'] and \
+        not update_info['remove_needed_service_interfaces']:
         result = True
         information_message = "No update targets."
     else:
-        result = set_cloudmap_for_elb_to_elb_private_ip(
-            update_info['update_needed_netowrk_interfaces'],
-            event["ServiceId"]
-        )
-        if result:
-            information_message = "Update successed."
+        if update_info['update_needed_netowrk_interfaces']:
+            set_result = set_cloudmap_for_elb_to_elb_private_ip(
+                update_info['update_needed_netowrk_interfaces'],
+                event["ServiceId"]
+            )
+            print('set_result: ' + set_result)
+        if update_info['remove_needed_service_interfaces']:
+            remove_result = remove_cloudmap_for_elb(
+                update_info['remove_needed_service_interfaces'],
+                event["ServiceId"]
+            )
+            print('remove_result: ' + remove_result)
+
+        if 'set_result' in locals() and 'remove_result' in locals():
+            if set_result and remove_result:
+                result = True
+                information_message = "Succeed all process."
+            elif set_result and not remove_result:
+                result = False
+                information_message = "Succeed set process but failed remove process."
+            elif not set_result and remove_result:
+                result = False
+                information_message = "Succeed remove process but failed set process."
+            else:
+                result = False
+                information_message = "Failed all process."
+        elif 'set_result' in locals() and 'remove_result' not in locals():
+            if set_result:
+                result = True
+                information_message = "Success set process."
+            else:
+                result = False
+                information_message = "Failed set process."
+        elif 'set_result' not in locals() and 'remove_result' in locals():
+            if remove_result:
+                result = True
+                information_message = "Success remove process."
+            else:
+                result = False
+                information_message = "Failed remove process."
         else:
-            information_message = "Failed in update process."
+            result = False
+            information_message = "Expect that don't show message..."
 
     function_result = {
         'Success': result,
