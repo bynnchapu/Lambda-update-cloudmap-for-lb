@@ -24,26 +24,46 @@ def get_elb_network_interfaces(lb_name):
 
 def what_is_update_needed(network_interfaces, service_id):
     client = boto3.client('servicediscovery')
+    response = client.list_instances(
+        ServiceId=service_id
+    )
 
-    needed_network_interfaces = list()
-    for network_interface_info in network_interfaces:
-        try:
-            response = client.get_instance(
-                ServiceId=service_id,
-                InstanceId=network_interface_info["NetworkInterfaceId"],
-            )
+    service_instances = list()
+    for service_instance in response['Instances']:
+        service_instance_info = {
+            'Id': service_instance['Id'],
+            'AWS_INSTANCE_IPV4': service_instance['Attributes']['AWS_INSTANCE_IPV4']
+        }
+        service_instances.append(service_instance_info)
 
-            if response["Instance"]["Attributes"]["AWS_INSTANCE_IPV4"] \
-                != network_interface_info["PrivateIpAddress"]:
-                client.deregister_instance(
-                    ServiceId=service_id,
-                    InstanceId=network_interface_info["NetworkInterfaceId"]
-                )
-                needed_network_interfaces.append(network_interface_info)
-        except:
-            needed_network_interfaces.append(network_interface_info)
+    update_needed_netowrk_interfaces = list()
+    used_network_interfaces = list()
+    for network_interface in network_interfaces:
+        add_flag = True
+        for service_instance in service_instances:
+            if network_interface['PrivateIpAddress'] == service_instance['AWS_INSTANCE_IPV4']:
+                add_flag = False
+                used_network_interfaces.append(network_interface)
+                break
+        if add_flag:
+            update_needed_netowrk_interfaces.append(network_interface)
 
-    return needed_network_interfaces
+    remove_needed_service_interfaces = list()
+    for service_instance in service_instances:
+        add_flag = True
+        for used_network_interface in used_network_interfaces:
+            if service_instance['Id'] == used_network_interface['NetworkInterfaceId']:
+                add_flag = False
+                break
+        if add_flag:
+            remove_needed_service_interfaces.append(service_instance)
+
+    return_info = {
+        'update_needed_netowrk_interfaces': update_needed_netowrk_interfaces,
+        'remove_needed_service_interfaces': remove_needed_service_interfaces
+    }
+
+    return return_info 
 
 
 def set_cloudmap_for_elb_to_elb_private_ip(network_interfaces, service_id):
@@ -64,25 +84,76 @@ def set_cloudmap_for_elb_to_elb_private_ip(network_interfaces, service_id):
     return True
 
 
+def remove_cloudmap_for_elb(service_instances, service_id):
+    client = boto3.client('servicediscovery')
+
+    for service_instance in service_instances:
+        try:
+            client.deregister_instance(
+                ServiceId=service_id,
+                InstanceId=service_instances['Id']
+            )
+        except:
+            return False
+
+    return True
+
+
 def lambda_handler(event, context):
     network_interfaces = get_elb_network_interfaces(event["LBName"])
-    update_network_interfaces = what_is_update_needed(
+    update_info = what_is_update_needed(
         network_interfaces,
         event["ServiceId"]
     )
 
-    if not update_network_interfaces:
+    if not update_info['update_needed_netowrk_interfaces'] and \
+        not update_info['remove_needed_service_interfaces']:
         result = True
         information_message = "No update targets."
     else:
-        result = set_cloudmap_for_elb_to_elb_private_ip(
-            update_network_interfaces,
-            event["ServiceId"]
-        )
-        if result:
-            information_message = "Update successed."
+        if update_info['update_needed_netowrk_interfaces']:
+            set_result = set_cloudmap_for_elb_to_elb_private_ip(
+                update_info['update_needed_netowrk_interfaces'],
+                event["ServiceId"]
+            )
+            print('set_result: ' + set_result)
+        if update_info['remove_needed_service_interfaces']:
+            remove_result = remove_cloudmap_for_elb(
+                update_info['remove_needed_service_interfaces'],
+                event["ServiceId"]
+            )
+            print('remove_result: ' + remove_result)
+
+        if 'set_result' in locals() and 'remove_result' in locals():
+            if set_result and remove_result:
+                result = True
+                information_message = "Succeed all process."
+            elif set_result and not remove_result:
+                result = False
+                information_message = "Succeed set process but failed remove process."
+            elif not set_result and remove_result:
+                result = False
+                information_message = "Succeed remove process but failed set process."
+            else:
+                result = False
+                information_message = "Failed all process."
+        elif 'set_result' in locals() and 'remove_result' not in locals():
+            if set_result:
+                result = True
+                information_message = "Success set process."
+            else:
+                result = False
+                information_message = "Failed set process."
+        elif 'set_result' not in locals() and 'remove_result' in locals():
+            if remove_result:
+                result = True
+                information_message = "Success remove process."
+            else:
+                result = False
+                information_message = "Failed remove process."
         else:
-            information_message = "Failed in update process."
+            result = False
+            information_message = "Expect that don't show message..."
 
     function_result = {
         'Success': result,
